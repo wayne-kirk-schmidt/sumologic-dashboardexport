@@ -59,7 +59,7 @@ NOTE: Please make sure that the ID that owns the API key also owns the dashboard
 To Do List:
 ===========
 
-* provide conversion tools
+*   extend conversion tools from JPEG
 
 License
 =======
