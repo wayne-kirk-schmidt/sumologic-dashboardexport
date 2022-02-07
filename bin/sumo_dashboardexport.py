@@ -28,6 +28,7 @@ import os
 import sys
 import argparse
 import time
+import tzlocal
 import requests
 import pdf2image
 
@@ -79,9 +80,10 @@ def main():
     """
 
     exporter=SumoApiClient(SUMO_UID, SUMO_KEY)
+    tzname = tzlocal.get_localzone().zone
 
     for dashboard in DASHBOARDLIST:
-        export = exporter.run_export_job(dashboard,timezone="Asia/Tokyo",exportFormat='Pdf')
+        export = exporter.run_export_job(dashboard,timezone=tzname,exportFormat='Pdf')
 
         if export['status'] != 'Success':
             print('Job: {} Status: {}'.format({export['job']}, {export['status']}))
