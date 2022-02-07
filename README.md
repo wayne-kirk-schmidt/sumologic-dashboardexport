@@ -64,8 +64,7 @@ To Do List:
 License
 =======
 
-Copyright 2022 Wayne Kirk Schmidt
-https://www.linkedin.com/in/waynekirkschmidt
+Copyright 2022 Wayne Kirk Schmidt and Rick Jury
 
 Licensed under the Apache 2.0 License (the "License");
 
@@ -84,5 +83,10 @@ limitations under the License.
 Support
 =======
 
-Feel free to e-mail me with issues to: wschmidt@sumologic.com
+Feel free to e-mail issues to: 
+
+- wschmidt@sumologic.com
+
+- wayne.kirk.schmidt@gmail.com
+
 I will provide "best effort" fixes and extend the scripts.
