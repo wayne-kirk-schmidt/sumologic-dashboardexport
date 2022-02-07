@@ -29,6 +29,7 @@ import sys
 import argparse
 import time
 import requests
+import pdf2image
 
 try:
     import cookielib
@@ -93,6 +94,19 @@ def main():
 
         with open(outputfile, "wb") as fileobject:
             fileobject.write(export['bytes'])
+
+    for path in os.listdir(OUTPUTDIR):
+        file_name = os.path.join(OUTPUTDIR, path)
+        print(file_name)
+        if os.path.isfile(file_name):
+            extension = os.path.splitext(file_name)[1]
+            if extension == '.pdf':
+                images = pdf2image.convert_from_path(file_name)
+                for i in range(len(images)):
+                    number = str(i)
+                    image_name = file_name.replace('.pdf', '.' + number + '.jpg')
+                    images[i].save(image_name, 'JPEG')
+
 
 
 ### class ###
