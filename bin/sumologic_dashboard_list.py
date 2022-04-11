@@ -30,7 +30,9 @@ import time
 import datetime
 import argparse
 import http
+import configparser
 import requests
+
 sys.dont_write_bytecode = 1
 
 MY_CFG = 'undefined'
@@ -40,47 +42,33 @@ This shows you all of the dashboards you have
 
 PARSER.add_argument("-a", metavar='<secret>', dest='MY_SECRET', \
                     help="set api (format: <key>:<secret>) ")
+
 PARSER.add_argument("-k", metavar='<client>', dest='MY_CLIENT', \
                     help="set key (format: <site>_<orgid>) ")
+
 PARSER.add_argument("-e", metavar='<endpoint>', dest='MY_ENDPOINT', \
                     help="set endpoint (format: <endpoint>) ")
+
+PARSER.add_argument('-c', metavar='<cfgfile>', dest='CONFIG', help='specify a config file')
+
+PARSER.add_argument("-i", "--initialize", action='store_true', default=False, \
+                    dest='INITIALIZE', help="initialize config file")
+
 PARSER.add_argument("-t", metavar='<type>', default="personal", dest='foldertype', \
                     help="Specify folder type to look for (default = personal )")
 
+PARSER.add_argument("-v", type=int, default=0, metavar='<verbose>', \
+                    dest='verbose', help="specify level of verbose output")
+
 ARGS = PARSER.parse_args()
 
-if ARGS.MY_SECRET:
-    (MY_APINAME, MY_APISECRET) = ARGS.MY_SECRET.split(':')
-    os.environ['SUMO_UID'] = MY_APINAME
-    os.environ['SUMO_KEY'] = MY_APISECRET
+VARTMPDIR = '/var/tmp'
 
-if ARGS.MY_CLIENT:
-    (MY_DEPLOYMENT, MY_ORGID) = ARGS.MY_CLIENT.split('_')
-    os.environ['SUMO_LOC'] = MY_DEPLOYMENT
-    os.environ['SUMO_ORG'] = MY_ORGID
-    os.environ['SUMO_TAG'] = ARGS.MY_CLIENT
-
-if ARGS.MY_ENDPOINT:
-    os.environ['SUMO_END'] = ARGS.MY_ENDPOINT
-else:
-    os.environ['SUMO_END'] = os.environ['SUMO_LOC']
-
-try:
-    SUMO_UID = os.environ['SUMO_UID']
-    SUMO_KEY = os.environ['SUMO_KEY']
-    SUMO_LOC = os.environ['SUMO_LOC']
-    SUMO_ORG = os.environ['SUMO_ORG']
-    SUMO_END = os.environ['SUMO_END']
-except KeyError as myerror:
-    print('Environment Variable Not Set :: {} '.format(myerror.args[0]))
+CFGTAG = 'dashboardexport'
 
 DELAY_TIME = .2
 
-CONTENTMAP = dict()
-
 CACHEDIR  = '/var/tmp'
-
-FILETAG = 'contentmap'
 
 RIGHTNOW = datetime.datetime.now()
 
@@ -89,6 +77,75 @@ DATESTAMP = RIGHTNOW.strftime('%Y%m%d')
 TIMESTAMP = RIGHTNOW.strftime('%H%M%S')
 
 FOLDERTYPE = ARGS.foldertype.capitalize()
+
+def initialize_config_file():
+    """
+    Initialize configuration file, write output, and then exit
+    """
+
+    starter_config = os.path.join( VARTMPDIR, ".".join((CFGTAG, "initial.cfg")))
+    config = configparser.RawConfigParser()
+    config.optionxform = str
+
+    config.add_section('Default')
+
+    cached_input = input ("Please enter your Cache Directory: \n")
+    config.set('Default', 'CACHED', cached_input )
+
+    apikey_input = input ("Please enter your Sumo Logic API Key Name: \n")
+    config.set('Default', 'SUMOUID', apikey_input )
+
+    apikey_input = input ("Please enter your Sumo Logic API Secret: \n")
+    config.set('Default', 'SUMOKEY', apikey_input )
+
+    source_input = input ("Please enter the your Sumo Logic deployment value: \n")
+    config.set('Default', 'SUMOEND', source_input )
+
+    with open(starter_config, 'w') as configfile:
+        config.write(configfile)
+    print('Complete! Written: {}'.format(starter_config))
+    sys.exit()
+
+if ARGS.INITIALIZE:
+    initialize_config_file()
+
+if ARGS.CONFIG:
+    CFGFILE = os.path.abspath(ARGS.CONFIG)
+    CONFIG = configparser.ConfigParser()
+    CONFIG.optionxform = str
+    CONFIG.read(CFGFILE)
+    if ARGS.verbose > 8:
+        print(dict(CONFIG.items('Default')))
+
+    if CONFIG.has_option("Default", "CACHED"):
+        CACHED = os.path.abspath(CONFIG.get("Default", "CACHED"))
+
+    if CONFIG.has_option("Default", "SUMOUID"):
+        SUMOUID = CONFIG.get("Default", "SUMOUID")
+        os.environ['SUMO_UID'] = SUMOUID
+
+    if CONFIG.has_option("Default", "SUMOKEY"):
+        SUMOKEY = CONFIG.get("Default", "SUMOKEY")
+        os.environ['SUMO_KEY'] = SUMOKEY
+
+    if CONFIG.has_option("Default", "SUMOEND"):
+        SUMOEND = CONFIG.get("Default", "SUMOEND")
+        os.environ['SUMO_END'] = SUMOEND
+
+if ARGS.MY_SECRET:
+    (MY_APINAME, MY_APISECRET) = ARGS.MY_SECRET.split(':')
+    os.environ['SUMO_UID'] = MY_APINAME
+    os.environ['SUMO_KEY'] = MY_APISECRET
+
+if ARGS.MY_ENDPOINT:
+    os.environ['SUMO_END'] = ARGS.MY_ENDPOINT
+
+try:
+    SUMO_UID = os.environ['SUMO_UID']
+    SUMO_KEY = os.environ['SUMO_KEY']
+    SUMO_END = os.environ['SUMO_END']
+except KeyError as myerror:
+    print('Environment Variable Not Set :: {} '.format(myerror.args[0]))
 
 ### beginning ###
 
@@ -100,6 +157,7 @@ def main():
     source = SumoApiClient(SUMO_UID, SUMO_KEY, SUMO_END)
 
     dashboard_output = source.list_dashboards()
+
     for dashboard_item in dashboard_output['dashboards']:
         dashid = dashboard_item['id']
         dashoid = dashboard_item['contentId']
