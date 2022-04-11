@@ -43,13 +43,16 @@ Script Names and Purposes
 The scripts are organized into sub directories:
 
     1. ./bin - 
-           ./bin/sumo_dashboardexport.py - download the results as PDF files
+           ./bin/sumologic_dashboard_list.py - list all of your dashboards including dashboard ID
+           ./bin/sumologic_dashboard_export.py - download the results as PDF files
 
 NOTE: this script required three items
 
     1. A Sumo API key name
     2. A Sumo API secret string 
     3. A Sumo Dashboard ID
+
+NOTE: these can be provided either in an environment variable, command line, or a config file.
 
 *   [Dashboard-Links](https://help.sumologic.com/Visualizations-and-Alerts/Dashboards/Get-Started-with-Dashboards-and-Panels/Add-a-Dashboard-Link)
 *   [Manage-API-Keys](https://help.sumologic.com/Manage/Security/Access-Keys)
