@@ -2,16 +2,16 @@
 # -*- coding: utf-8 -*-
 
 """
-Exaplanation: sumo_dashboardexport will take a list of dashboards and export results
+Exaplanation: sumo_dashboard_export will take a list of dashboards and export results
 
 Usage:
-    $ python  sumo_dashboardexport [ options ]
+    $ python  sumo_dashboard_export [ options ]
 
 Style:
     Google Python Style Guide:
     http://google.github.io/styleguide/pyguide.html
 
-    @name           sumo_dashboardexport
+    @name           sumo_dashboard_export
     @version        2.00
     @author-name    Rick Jury / Wayne Schmidt
     @author-email   rjury@sumologic.com / wschmidt@sumologic.com
@@ -28,6 +28,7 @@ import os
 import sys
 import argparse
 import time
+import datetime
 import tzlocal
 import requests
 import pdf2image
@@ -41,19 +42,29 @@ sys.dont_write_bytecode = 1
 
 MY_CFG = 'undefined'
 PARSER = argparse.ArgumentParser(description="""
-run_query is a Sumo Logic cli cmdlet managing queries
+sumologic_dashboard_export will extract out any and all dashboards you specify
 """)
 
 PARSER.add_argument("-a", metavar='<secret>', dest='MY_APIKEY', \
                     required=True, help="set query authkey (format: <key>:<secret>) ")
+
 PARSER.add_argument("-d", metavar='<dashboard>', dest='DASHBOARDLIST', \
                     action='append', required=True, help="set dashboard uid (list format)")
+
 PARSER.add_argument("-f", metavar='<fmt>', default="Pdf", dest='OFORMAT', \
                     help="set query output")
+
+PARSER.add_argument('-c', metavar='<cfgfile>', dest='CONFIG', help='specify a config file')
+
 PARSER.add_argument("-o", metavar='<outdir>', default="/var/tmp/dashboardexport", \
-                    dest='OUTPUTDIR', help="set query output directory")
+                    dest='CACHED', help="set query output directory")
+
 PARSER.add_argument("-s", metavar='<sleeptime>', default=2, dest='SLEEPTIME', \
                     help="set sleep time to check results")
+
+PARSER.add_argument("-i", "--initialize", action='store_true', default=False, \
+                    dest='INITIALIZE', help="initialize config file")
+
 PARSER.add_argument("-v", type=int, default=0, metavar='<verbose>', \
                     dest='VERBOSE', help="increase verbosity")
 
@@ -61,7 +72,7 @@ ARGS = PARSER.parse_args()
 
 DASHBOARDLIST = ARGS.DASHBOARDLIST
 
-OUTPUTDIR = ARGS.OUTPUTDIR
+CACHED = ARGS.CACHED
 
 OUTFORMAT = ARGS.OFORMAT
 
@@ -70,6 +81,81 @@ MY_SLEEP = int(ARGS.SLEEPTIME)
 VERBOSE = ARGS.VERBOSE
 
 (SUMO_UID, SUMO_KEY) = ARGS.MY_APIKEY.split(':')
+
+RIGHTNOW = datetime.datetime.now()
+
+DATESTAMP = RIGHTNOW.strftime('%Y%m%d')
+
+TIMESTAMP = RIGHTNOW.strftime('%H%M%S')
+
+##################################################3
+
+def initialize_config_file():
+    """
+    Initialize configuration file, write output, and then exit
+    """
+
+    starter_config = os.path.join( VARTMPDIR, ".".join((CFGTAG, "initial.cfg")))
+    config = configparser.RawConfigParser()
+    config.optionxform = str
+
+    config.add_section('Default')
+
+    cached_input = input ("Please enter your Cache Directory: \n")
+    config.set('Default', 'CACHED', cached_input )
+
+    apikey_input = input ("Please enter your Sumo Logic API Key Name: \n")
+    config.set('Default', 'SUMOUID', apikey_input )
+
+    apikey_input = input ("Please enter your Sumo Logic API Secret: \n")
+    config.set('Default', 'SUMOKEY', apikey_input )
+
+    source_input = input ("Please enter the your Sumo Logic deployment value: \n")
+    config.set('Default', 'SUMOEND', source_input )
+
+    with open(starter_config, 'w') as configfile:
+        config.write(configfile)
+    print('Complete! Written: {}'.format(starter_config))
+    sys.exit()
+
+if ARGS.INITIALIZE:
+    initialize_config_file()
+
+if ARGS.CONFIG:
+    CFGFILE = os.path.abspath(ARGS.CONFIG)
+    CONFIG = configparser.ConfigParser()
+    CONFIG.optionxform = str
+    CONFIG.read(CFGFILE)
+    if ARGS.verbose > 8:
+        print(dict(CONFIG.items('Default')))
+
+    if CONFIG.has_option("Default", "CACHED"):
+        CACHED = os.path.abspath(CONFIG.get("Default", "CACHED"))
+
+    if CONFIG.has_option("Default", "SUMOUID"):
+        SUMOUID = CONFIG.get("Default", "SUMOUID")
+        os.environ['SUMO_UID'] = SUMOUID
+
+    if CONFIG.has_option("Default", "SUMOKEY"):
+        SUMOKEY = CONFIG.get("Default", "SUMOKEY")
+        os.environ['SUMO_KEY'] = SUMOKEY
+
+    if CONFIG.has_option("Default", "SUMOEND"):
+        SUMOEND = CONFIG.get("Default", "SUMOEND")
+        os.environ['SUMO_END'] = SUMOEND
+
+if ARGS.MY_APIKEY:
+    (MY_APINAME, MY_APISECRET) = ARGS.MY_APIKEY.split(':')
+    os.environ['SUMO_UID'] = MY_APINAME
+    os.environ['SUMO_KEY'] = MY_APISECRET
+
+try:
+    SUMO_UID = os.environ['SUMO_UID']
+    SUMO_KEY = os.environ['SUMO_KEY']
+except KeyError as myerror:
+    print('Environment Variable Not Set :: {} '.format(myerror.args[0]))
+
+##################################################3
 
 ### beginning ###
 
@@ -80,25 +166,28 @@ def main():
     """
 
     exporter=SumoApiClient(SUMO_UID, SUMO_KEY)
+
     tzname = tzlocal.get_localzone().zone
 
+    os.makedirs(CACHED, exist_ok=True)
+
     for dashboard in DASHBOARDLIST:
+
         export = exporter.run_export_job(dashboard,timezone=tzname,exportFormat='Pdf')
 
         if export['status'] != 'Success':
             print('Job: {} Status: {}'.format({export['job']}, {export['status']}))
-        else:
-            os.makedirs(OUTPUTDIR, exist_ok=True)
+            sys.exit()
 
-        outputfile = "{dir}/{file}.{ext}".format(dir=OUTPUTDIR, \
+        outputfile = "{dir}/{file}.{ext}".format(dir=CACHED, \
                                                  file=dashboard,ext=OUTFORMAT.lower())
         print('Writing File: {}'.format(outputfile))
 
         with open(outputfile, "wb") as fileobject:
             fileobject.write(export['bytes'])
 
-    for path in os.listdir(OUTPUTDIR):
-        file_name = os.path.join(OUTPUTDIR, path)
+    for path in os.listdir(CACHED):
+        file_name = os.path.join(CACHED, path)
         print(file_name)
         if os.path.isfile(file_name):
             extension = os.path.splitext(file_name)[1]
@@ -108,8 +197,6 @@ def main():
                     number = str(i)
                     image_name = file_name.replace('.pdf', '.' + number + '.jpg')
                     images[i].save(image_name, 'JPEG')
-
-
 
 ### class ###
 class SumoApiClient():

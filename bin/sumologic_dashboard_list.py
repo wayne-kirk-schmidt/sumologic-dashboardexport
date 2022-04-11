@@ -37,7 +37,7 @@ sys.dont_write_bytecode = 1
 
 MY_CFG = 'undefined'
 PARSER = argparse.ArgumentParser(description="""
-This shows you all of the dashboards you have
+sumologic_dashboard_list shows all the dashboards either personal or global
 """)
 
 PARSER.add_argument("-a", metavar='<secret>', dest='MY_SECRET', \
@@ -158,11 +158,15 @@ def main():
 
     dashboard_output = source.list_dashboards()
 
+    print("uid_myself,uid_parent,dashboard_id,my_name")
+
+    dashboard_output = source.list_dashboards()
     for dashboard_item in dashboard_output['dashboards']:
-        dashid = dashboard_item['id']
-        dashoid = dashboard_item['contentId']
-        dashname = dashboard_item['title']
-        print('{},{},{}'.format(dashoid,dashid,dashname))
+        myself_oid = dashboard_item['contentId']
+        parent_oid = dashboard_item['folderId']
+        myname = dashboard_item['title']
+        dashboard_id = dashboard_item['id']
+        print('{},{},{},{}'.format(myself_oid, parent_oid, dashboard_id, myname))
 
 ### class ###
 class SumoApiClient():
