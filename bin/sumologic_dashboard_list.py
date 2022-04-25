@@ -24,7 +24,6 @@ __author__ = "Wayne Schmidt (wschmidt@sumologic.com)"
 
 ### beginning ###
 import json
-import csv
 import os
 import sys
 import time
@@ -32,7 +31,6 @@ import datetime
 import argparse
 import configparser
 import http
-import pandas
 import requests
 sys.dont_write_bytecode = 1
 

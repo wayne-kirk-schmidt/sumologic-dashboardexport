@@ -26,9 +26,10 @@ __author__ = "Wayne Schmidt (wschmidt@sumologic.com)"
 import json
 import os
 import sys
-import argparse
 import time
 import datetime
+import argparse
+import configparser
 import tzlocal
 import requests
 import pdf2image
@@ -45,11 +46,11 @@ PARSER = argparse.ArgumentParser(description="""
 sumologic_dashboard_export will extract out any and all dashboards you specify
 """)
 
-PARSER.add_argument("-a", metavar='<secret>', dest='MY_APIKEY', \
-                    required=True, help="set query authkey (format: <key>:<secret>) ")
+PARSER.add_argument("-a", metavar='<secret>', dest='MY_SECRET', \
+                    help="set query authkey (format: <key>:<secret>) ")
 
 PARSER.add_argument("-d", metavar='<dashboard>', dest='DASHBOARDLIST', \
-                    action='append', required=True, help="set dashboard uid (list format)")
+                    action='append', help="set dashboard uid (list format)")
 
 PARSER.add_argument("-f", metavar='<fmt>', default="Pdf", dest='OFORMAT', \
                     help="set query output")
@@ -62,15 +63,10 @@ PARSER.add_argument("-o", metavar='<outdir>', default="/var/tmp/dashboardexport"
 PARSER.add_argument("-s", metavar='<sleeptime>', default=2, dest='SLEEPTIME', \
                     help="set sleep time to check results")
 
-PARSER.add_argument("-i", "--initialize", action='store_true', default=False, \
-                    dest='INITIALIZE', help="initialize config file")
-
 PARSER.add_argument("-v", type=int, default=0, metavar='<verbose>', \
-                    dest='VERBOSE', help="increase verbosity")
+                    dest='verbose', help="increase verbosity")
 
 ARGS = PARSER.parse_args()
-
-DASHBOARDLIST = ARGS.DASHBOARDLIST
 
 CACHED = ARGS.CACHED
 
@@ -78,82 +74,79 @@ OUTFORMAT = ARGS.OFORMAT
 
 MY_SLEEP = int(ARGS.SLEEPTIME)
 
-VERBOSE = ARGS.VERBOSE
-
-(SUMO_UID, SUMO_KEY) = ARGS.MY_APIKEY.split(':')
-
 RIGHTNOW = datetime.datetime.now()
 
 DATESTAMP = RIGHTNOW.strftime('%Y%m%d')
 
 TIMESTAMP = RIGHTNOW.strftime('%H%M%S')
 
-def initialize_config_file():
+def resolve_option_variables():
     """
-    Initialize configuration file, write output, and then exit
+    Validates and confirms all necessary variables for the script
     """
 
-    starter_config = os.path.join( VARTMPDIR, ".".join((CFGTAG, "initial.cfg")))
-    config = configparser.RawConfigParser()
-    config.optionxform = str
+    if ARGS.MY_SECRET:
+        (keyname, keysecret) = ARGS.MY_SECRET.split(':')
+        os.environ['SUMO_UID'] = keyname
+        os.environ['SUMO_KEY'] = keysecret
 
-    config.add_section('Default')
+def resolve_config_variables():
+    """
+    Validates and confirms all necessary variables for the script
+    """
 
-    cached_input = input ("Please enter your Cache Directory: \n")
-    config.set('Default', 'CACHED', cached_input )
+    if ARGS.CONFIG:
+        cfgfile = os.path.abspath(ARGS.CONFIG)
+        configobj = configparser.ConfigParser()
+        configobj.optionxform = str
+        configobj.read(cfgfile)
 
-    apikey_input = input ("Please enter your Sumo Logic API Key Name: \n")
-    config.set('Default', 'SUMOUID', apikey_input )
+        if ARGS.verbose > 8:
+            print('Displaying Config Contents:')
+            print(dict(configobj.items('Default')))
 
-    apikey_input = input ("Please enter your Sumo Logic API Secret: \n")
-    config.set('Default', 'SUMOKEY', apikey_input )
+        if configobj.has_option("Default", "SUMO_UID"):
+            os.environ['SUMO_UID'] = configobj.get("Default", "SUMO_UID")
 
-    source_input = input ("Please enter the your Sumo Logic deployment value: \n")
-    config.set('Default', 'SUMOEND', source_input )
+        if configobj.has_option("Default", "SUMO_KEY"):
+            os.environ['SUMO_KEY'] = configobj.get("Default", "SUMO_KEY")
 
-    with open(starter_config, 'w') as configfile:
-        config.write(configfile)
-    print('Complete! Written: {}'.format(starter_config))
-    sys.exit()
+def initialize_variables():
+    """
+    Validates and confirms all necessary variables for the script
+    """
 
-if ARGS.INITIALIZE:
-    initialize_config_file()
+    resolve_option_variables()
 
-if ARGS.CONFIG:
-    CFGFILE = os.path.abspath(ARGS.CONFIG)
-    CONFIG = configparser.ConfigParser()
-    CONFIG.optionxform = str
-    CONFIG.read(CFGFILE)
-    if ARGS.verbose > 8:
-        print(dict(CONFIG.items('Default')))
+    resolve_config_variables()
 
-    if CONFIG.has_option("Default", "CACHED"):
-        CACHED = os.path.abspath(CONFIG.get("Default", "CACHED"))
+    try:
+        my_uid = os.environ['SUMO_UID']
+        my_key = os.environ['SUMO_KEY']
 
-    if CONFIG.has_option("Default", "SUMOUID"):
-        SUMOUID = CONFIG.get("Default", "SUMOUID")
-        os.environ['SUMO_UID'] = SUMOUID
+    except KeyError as myerror:
+        print('Environment Variable Not Set :: {} '.format(myerror.args[0]))
 
-    if CONFIG.has_option("Default", "SUMOKEY"):
-        SUMOKEY = CONFIG.get("Default", "SUMOKEY")
-        os.environ['SUMO_KEY'] = SUMOKEY
+    return my_uid, my_key
 
-    if CONFIG.has_option("Default", "SUMOEND"):
-        SUMOEND = CONFIG.get("Default", "SUMOEND")
-        os.environ['SUMO_END'] = SUMOEND
+( sumo_uid, sumo_key ) = initialize_variables()
 
-if ARGS.MY_APIKEY:
-    (MY_APINAME, MY_APISECRET) = ARGS.MY_APIKEY.split(':')
-    os.environ['SUMO_UID'] = MY_APINAME
-    os.environ['SUMO_KEY'] = MY_APISECRET
-
-try:
-    SUMO_UID = os.environ['SUMO_UID']
-    SUMO_KEY = os.environ['SUMO_KEY']
-except KeyError as myerror:
-    print('Environment Variable Not Set :: {} '.format(myerror.args[0]))
-
-##################################################3
+def resolve_dashboardlist():
+    """
+    Resolve dashboard list to export
+    """
+    if ARGS.DASHBOARDLIST:
+        dashboardlist = ARGS.DASHBOARDLIST
+    else:
+        if ARGS.CONFIG:
+            cfgfile = os.path.abspath(ARGS.CONFIG)
+            configobj = configparser.ConfigParser()
+            configobj.optionxform = str
+            configobj.read(cfgfile)
+            if configobj.has_section("Dashboards"):
+                dashboarddict = dict(configobj.items('Dashboards'))
+                dashboardlist = list(dashboarddict.keys())
+    return dashboardlist
 
 ### beginning ###
 
@@ -163,13 +156,15 @@ def main():
     Once done, then issue the command required
     """
 
-    exporter=SumoApiClient(SUMO_UID, SUMO_KEY)
+    exporter=SumoApiClient(sumo_uid, sumo_key)
 
     tzname = tzlocal.get_localzone().zone
 
     os.makedirs(CACHED, exist_ok=True)
 
-    for dashboard in DASHBOARDLIST:
+    dashboardlist = resolve_dashboardlist()
+
+    for dashboard in dashboardlist:
 
         export = exporter.run_export_job(dashboard,timezone=tzname,exportFormat='Pdf')
 
@@ -202,7 +197,8 @@ class SumoApiClient():
     This is defined SumoLogic API Client
     The class includes the HTTP methods, cmdlets, and init methods
     """
-    def __init__(self, accessId=SUMO_UID, accessKey=SUMO_KEY, endpoint=None, caBundle=None, cookieFile='cookies.txt'):
+    def __init__(self, accessId=sumo_uid, accessKey=sumo_key, endpoint=None, \
+                 caBundle=None, cookieFile='cookies.txt'):
         self.session = requests.Session()
         self.session.auth = (accessId, accessKey)
         self.default_version = 'v2'
@@ -348,7 +344,7 @@ class SumoApiClient():
         """
         response = self.post('/dashboards/reportJobs', params=body, version='v2')
         job_id = json.loads(response.text)['id']
-        if VERBOSE > 5:
+        if ARGS.verbose > 5:
             print('Started Job: {}'.format(job_id))
         return job_id
 
@@ -374,7 +370,7 @@ class SumoApiClient():
             "format": response.headers["Content-Type"],
             "bytes": response.content
         }
-        if VERBOSE > 5:
+        if ARGS.verbose > 5:
             print ('Returned File Type: {}'.format(response['format']))
         return response
 
@@ -408,7 +404,7 @@ class SumoApiClient():
             progress = response['result']['status']
             time.sleep(seconds)
 
-        if VERBOSE > 5:
+        if ARGS.verbose > 5:
             print('{}/{} job: {} status: {}'.format(tried, tries, \
                                                     job_id, response['result']['status']))
 
@@ -418,13 +414,14 @@ class SumoApiClient():
         response['max_seconds'] = tries * seconds
         return response
 
-    def run_export_job(self,report_id,timezone="America/Los_Angeles",exportFormat='Pdf',tries=30,seconds=MY_SLEEP):
+    def run_export_job(self,report_id,timezone="America/Los_Angeles", \
+                       exportFormat='Pdf',tries=30,seconds=MY_SLEEP):
         """
         Run the defined dashboard export job
         """
         payload = self.define_export_job(report_id,timezone=timezone,exportFormat=exportFormat)
         job = self.export_dashboard(payload)
-        if VERBOSE > 7:
+        if ARGS.verbose > 7:
             print ('Running Job: {}'.format(job))
         poll_status = self.poll_export_dashboard_job(job,tries=tries,seconds=seconds)
         if poll_status['result']['status'] == 'Success':
