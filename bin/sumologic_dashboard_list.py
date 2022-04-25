@@ -2,16 +2,16 @@
 # -*- coding: utf-8 -*-
 
 """
-Exaplanation: sumo_dashboard_list. Show your dashboard ID
+Exaplanation: sumologic_dashboard_list: extract out your content folders into a file system
 
 Usage:
-   $ python  sumo_dashboard_list [ options ]
+   $ python  sumologic_dashboard_list [ options ]
 
 Style:
    Google Python Style Guide:
    http://google.github.io/styleguide/pyguide.html
 
-    @name           sumo_dashboard_list
+    @name           sumologic_dashboard_list
     @version        2.00
     @author-name    Wayne Schmidt
     @author-email   wschmidt@sumologic.com
@@ -24,20 +24,21 @@ __author__ = "Wayne Schmidt (wschmidt@sumologic.com)"
 
 ### beginning ###
 import json
+import csv
 import os
 import sys
 import time
 import datetime
 import argparse
-import http
 import configparser
+import http
+import pandas
 import requests
-
 sys.dont_write_bytecode = 1
 
 MY_CFG = 'undefined'
 PARSER = argparse.ArgumentParser(description="""
-sumologic_dashboard_list shows all the dashboards either personal or global
+sumologic_dashboard_list shows all of the dashboards and their OID
 """)
 
 PARSER.add_argument("-a", metavar='<secret>', dest='MY_SECRET', \
@@ -46,29 +47,95 @@ PARSER.add_argument("-a", metavar='<secret>', dest='MY_SECRET', \
 PARSER.add_argument("-k", metavar='<client>', dest='MY_CLIENT', \
                     help="set key (format: <site>_<orgid>) ")
 
-PARSER.add_argument("-e", metavar='<endpoint>', dest='MY_ENDPOINT', \
-                    help="set endpoint (format: <endpoint>) ")
-
-PARSER.add_argument('-c', metavar='<cfgfile>', dest='CONFIG', help='specify a config file')
-
-PARSER.add_argument("-i", "--initialize", action='store_true', default=False, \
-                    dest='INITIALIZE', help="initialize config file")
-
-PARSER.add_argument("-t", metavar='<type>', default="personal", dest='foldertype', \
-                    help="Specify folder type to look for (default = personal )")
+PARSER.add_argument("-c", metavar='<cfg>', dest='CONFIG', \
+                    help="Specify config file")
 
 PARSER.add_argument("-v", type=int, default=0, metavar='<verbose>', \
-                    dest='verbose', help="specify level of verbose output")
+                    dest='verbose', help="increase verbosity")
 
-ARGS = PARSER.parse_args()
+ARGS = PARSER.parse_args(args=None if sys.argv[1:] else ['--help'])
 
-VARTMPDIR = '/var/tmp'
+def resolve_option_variables():
+    """
+    Validates and confirms all necessary variables for the script
+    """
 
-CFGTAG = 'dashboardexport'
+    if ARGS.MY_SECRET:
+        (keyname, keysecret) = ARGS.MY_SECRET.split(':')
+        os.environ['SUMO_UID'] = keyname
+        os.environ['SUMO_KEY'] = keysecret
+
+    if ARGS.MY_CLIENT:
+        (deployment, organizationid) = ARGS.MY_CLIENT.split('_')
+        os.environ['SUMO_LOC'] = deployment
+        os.environ['SUMO_ORG'] = organizationid
+
+def resolve_config_variables():
+    """
+    Validates and confirms all necessary variables for the script
+    """
+
+    if ARGS.CONFIG:
+        cfgfile = os.path.abspath(ARGS.CONFIG)
+        configobj = configparser.ConfigParser()
+        configobj.optionxform = str
+        configobj.read(cfgfile)
+
+        if ARGS.verbose > 8:
+            print('Displaying Config Contents:')
+            print(dict(configobj.items('Default')))
+
+        if configobj.has_option("Default", "SUMO_TAG"):
+            os.environ['SUMO_TAG'] = configobj.get("Default", "SUMO_TAG")
+
+        if configobj.has_option("Default", "SUMO_UID"):
+            os.environ['SUMO_UID'] = configobj.get("Default", "SUMO_UID")
+
+        if configobj.has_option("Default", "SUMO_KEY"):
+            os.environ['SUMO_KEY'] = configobj.get("Default", "SUMO_KEY")
+
+        if configobj.has_option("Default", "SUMO_LOC"):
+            os.environ['SUMO_LOC'] = configobj.get("Default", "SUMO_LOC")
+
+        if configobj.has_option("Default", "SUMO_END"):
+            os.environ['SUMO_END'] = configobj.get("Default", "SUMO_END")
+
+        if configobj.has_option("Default", "SUMO_ORG"):
+            os.environ['SUMO_ORG'] = configobj.get("Default", "SUMO_ORG")
+
+def initialize_variables():
+    """
+    Validates and confirms all necessary variables for the script
+    """
+
+    resolve_option_variables()
+
+    resolve_config_variables()
+
+    try:
+        my_uid = os.environ['SUMO_UID']
+        my_key = os.environ['SUMO_KEY']
+
+    except KeyError as myerror:
+        print('Environment Variable Not Set :: {} '.format(myerror.args[0]))
+
+    return my_uid, my_key
+
+( sumo_uid, sumo_key ) = initialize_variables()
+
+try:
+    SUMO_UID = os.environ['SUMO_UID']
+    SUMO_KEY = os.environ['SUMO_KEY']
+except KeyError as myerror:
+    print('Environment Variable Not Set :: {} '.format(myerror.args[0]))
 
 DELAY_TIME = .2
 
+CONTENTMAP = dict()
+
 CACHEDIR  = '/var/tmp'
+
+FILETAG = 'contentmap'
 
 RIGHTNOW = datetime.datetime.now()
 
@@ -76,76 +143,6 @@ DATESTAMP = RIGHTNOW.strftime('%Y%m%d')
 
 TIMESTAMP = RIGHTNOW.strftime('%H%M%S')
 
-FOLDERTYPE = ARGS.foldertype.capitalize()
-
-def initialize_config_file():
-    """
-    Initialize configuration file, write output, and then exit
-    """
-
-    starter_config = os.path.join( VARTMPDIR, ".".join((CFGTAG, "initial.cfg")))
-    config = configparser.RawConfigParser()
-    config.optionxform = str
-
-    config.add_section('Default')
-
-    cached_input = input ("Please enter your Cache Directory: \n")
-    config.set('Default', 'CACHED', cached_input )
-
-    apikey_input = input ("Please enter your Sumo Logic API Key Name: \n")
-    config.set('Default', 'SUMOUID', apikey_input )
-
-    apikey_input = input ("Please enter your Sumo Logic API Secret: \n")
-    config.set('Default', 'SUMOKEY', apikey_input )
-
-    source_input = input ("Please enter the your Sumo Logic deployment value: \n")
-    config.set('Default', 'SUMOEND', source_input )
-
-    with open(starter_config, 'w') as configfile:
-        config.write(configfile)
-    print('Complete! Written: {}'.format(starter_config))
-    sys.exit()
-
-if ARGS.INITIALIZE:
-    initialize_config_file()
-
-if ARGS.CONFIG:
-    CFGFILE = os.path.abspath(ARGS.CONFIG)
-    CONFIG = configparser.ConfigParser()
-    CONFIG.optionxform = str
-    CONFIG.read(CFGFILE)
-    if ARGS.verbose > 8:
-        print(dict(CONFIG.items('Default')))
-
-    if CONFIG.has_option("Default", "CACHED"):
-        CACHED = os.path.abspath(CONFIG.get("Default", "CACHED"))
-
-    if CONFIG.has_option("Default", "SUMOUID"):
-        SUMOUID = CONFIG.get("Default", "SUMOUID")
-        os.environ['SUMO_UID'] = SUMOUID
-
-    if CONFIG.has_option("Default", "SUMOKEY"):
-        SUMOKEY = CONFIG.get("Default", "SUMOKEY")
-        os.environ['SUMO_KEY'] = SUMOKEY
-
-    if CONFIG.has_option("Default", "SUMOEND"):
-        SUMOEND = CONFIG.get("Default", "SUMOEND")
-        os.environ['SUMO_END'] = SUMOEND
-
-if ARGS.MY_SECRET:
-    (MY_APINAME, MY_APISECRET) = ARGS.MY_SECRET.split(':')
-    os.environ['SUMO_UID'] = MY_APINAME
-    os.environ['SUMO_KEY'] = MY_APISECRET
-
-if ARGS.MY_ENDPOINT:
-    os.environ['SUMO_END'] = ARGS.MY_ENDPOINT
-
-try:
-    SUMO_UID = os.environ['SUMO_UID']
-    SUMO_KEY = os.environ['SUMO_KEY']
-    SUMO_END = os.environ['SUMO_END']
-except KeyError as myerror:
-    print('Environment Variable Not Set :: {} '.format(myerror.args[0]))
 
 ### beginning ###
 
@@ -154,9 +151,7 @@ def main():
     Setup the Sumo API connection, using the required tuple of region, id, and key.
     Once done, then issue the command required
     """
-    source = SumoApiClient(SUMO_UID, SUMO_KEY, SUMO_END)
-
-    dashboard_output = source.list_dashboards()
+    source = SumoApiClient(sumo_uid, sumo_key)
 
     print("uid_myself,uid_parent,dashboard_id,my_name")
 
@@ -175,7 +170,7 @@ class SumoApiClient():
     The class includes the HTTP methods, cmdlets, and init methods
     """
 
-    def __init__(self, access_id, access_key, region, cookieFile='cookies.txt'):
+    def __init__(self, access_id, access_key, endpoint=None, cookieFile='cookies.txt'):
         """
         Initializes the Sumo Logic object
         """
@@ -183,9 +178,26 @@ class SumoApiClient():
         self.session.auth = (access_id, access_key)
         self.session.headers = {'content-type': 'application/json', \
             'accept': 'application/json'}
-        self.apipoint = 'https://api.' + region + '.sumologic.com/api'
         cookiejar = http.cookiejar.FileCookieJar(cookieFile)
         self.session.cookies = cookiejar
+        if endpoint is None:
+            self.apipoint = self._get_endpoint()
+        elif len(endpoint) < 3:
+            self.apipoint = 'https://api.' + endpoint + '.sumologic.com/api'
+        else:
+            self.apipoint = endpoint
+        if self.apipoint[-1:] == "/":
+            raise Exception("Endpoint should not end with a slash character")
+
+    def _get_endpoint(self):
+        """
+        SumoLogic REST API endpoint changes based on the geo location of the client.
+        It contacts the default REST endpoint and resolves the 401 to get the right endpoint.
+        """
+        self.endpoint = 'https://api.sumologic.com/api'
+        self.response = self.session.get('https://api.sumologic.com/api/v1/collectors')
+        endpoint = self.response.url.replace('/v1/collectors', '')
+        return endpoint
 
     def delete(self, method, params=None, headers=None, data=None):
         """

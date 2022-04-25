@@ -88,8 +88,6 @@ DATESTAMP = RIGHTNOW.strftime('%Y%m%d')
 
 TIMESTAMP = RIGHTNOW.strftime('%H%M%S')
 
-##################################################3
-
 def initialize_config_file():
     """
     Initialize configuration file, write output, and then exit
