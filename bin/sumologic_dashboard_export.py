@@ -158,7 +158,7 @@ def main():
 
     exporter=SumoApiClient(sumo_uid, sumo_key)
 
-    tzname = tzlocal.get_localzone().zone
+    tzname = str(tzlocal.get_localzone())
 
     os.makedirs(CACHED, exist_ok=True)
 
