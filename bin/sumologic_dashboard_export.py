@@ -402,11 +402,14 @@ class SumoApiClient():
             tried += 1
             response = self.check_export_dashboard_status(job_id)
             progress = response['result']['status']
+            if ARGS.verbose > 7:
+                print('job: {} status: {} tries: {} sleeping: {}'.format(job_id, \
+                                                    progress, tried, seconds))
             time.sleep(seconds)
 
         if ARGS.verbose > 5:
             print('{}/{} job: {} status: {}'.format(tried, tries, \
-                                                    job_id, response['result']['status']))
+                                                    job_id, progress))
 
         response['tried'] = tried
         response['seconds'] = tried * seconds
