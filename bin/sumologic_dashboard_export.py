@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pylint: disable=R0914
+# pylint: disable=R0913
+# pylint: disable=R0201
 
 """
 Exaplanation: sumo_dashboard_export will take a list of dashboards and export results
@@ -125,7 +128,7 @@ def initialize_variables():
         my_key = os.environ['SUMO_KEY']
 
     except KeyError as myerror:
-        print('Environment Variable Not Set :: {} '.format(myerror.args[0]))
+        print(f'Environment Variable Not Set :: {myerror.args[0]}')
 
     return my_uid, my_key
 
@@ -166,15 +169,14 @@ def main():
 
     for dashboard in dashboardlist:
 
-        export = exporter.run_export_job(dashboard,timezone=tzname,exportFormat='Pdf')
+        export = exporter.run_export_job(dashboard,timezone=tzname,export_format='Pdf')
 
         if export['status'] != 'Success':
-            print('Job: {} Status: {}'.format({export['job']}, {export['status']}))
+            print(f'Job: {export["job"]} Status: {export["status"]}')
             sys.exit()
 
-        outputfile = "{dir}/{file}.{ext}".format(dir=CACHED, \
-                                                 file=dashboard,ext=OUTFORMAT.lower())
-        print('Writing File: {}'.format(outputfile))
+        outputfile = f'{CACHED}/{dashboard}.{OUTFORMAT.lower()}'
+        print(f'Writing File: {outputfile}')
 
         with open(outputfile, "wb") as fileobject:
             fileobject.write(export['bytes'])
@@ -186,10 +188,9 @@ def main():
             extension = os.path.splitext(file_name)[1]
             if extension == '.pdf':
                 images = pdf2image.convert_from_path(file_name)
-                for i in range(len(images)):
-                    number = str(i)
-                    image_name = file_name.replace('.pdf', '.' + number + '.jpg')
-                    images[i].save(image_name, 'JPEG')
+                for number, _imageitem in enumerate(images):
+                    image_name = file_name.replace('.pdf', '.' + str(number) + '.jpg')
+                    images[number].save(image_name, 'JPEG')
 
 ### class ###
 class SumoApiClient():
@@ -197,15 +198,15 @@ class SumoApiClient():
     This is defined SumoLogic API Client
     The class includes the HTTP methods, cmdlets, and init methods
     """
-    def __init__(self, accessId=sumo_uid, accessKey=sumo_key, endpoint=None, \
-                 caBundle=None, cookieFile='cookies.txt'):
+    def __init__(self, access_id=sumo_uid, access_key=sumo_key, endpoint=None, \
+                 ca_bundle=None, cookie_file='cookies.txt'):
         self.session = requests.Session()
-        self.session.auth = (accessId, accessKey)
+        self.session.auth = (access_id, access_key)
         self.default_version = 'v2'
         self.session.headers = {'content-type': 'application/json', 'accept': '*/*'}
-        if caBundle is not None:
-            self.session.verify = caBundle
-        cookiejar = cookielib.FileCookieJar(cookieFile)
+        if ca_bundle is not None:
+            self.session.verify = ca_bundle
+        cookiejar = cookielib.FileCookieJar(cookie_file)
         self.session.cookies = cookiejar
         if endpoint is None:
             self.endpoint = self._get_endpoint()
@@ -231,7 +232,7 @@ class SumoApiClient():
         """
         formats and returns the endpoint and version
         """
-        return self.endpoint+'/%s' % version
+        return self.endpoint+f'/{version}'
 
     def delete(self, method, params=None, version=None):
         """
@@ -295,7 +296,8 @@ class SumoApiClient():
         version = version or self.default_version
         endpoint = self.get_versioned_endpoint(version)
         post_params = {'merge': params['merge']}
-        file_data = open(params['full_file_path'], 'rb').read()
+        with open(params['full_file_path'], 'rb', encoding='utf8') as file_object:
+            file_data = file_object.read()
         files = {'file': (params['file_name'], file_data)}
         response = requests.post(endpoint + method, files=files, params=post_params,
                 auth=(self.session.auth[0], self.session.auth[1]), headers=headers)
@@ -345,14 +347,14 @@ class SumoApiClient():
         response = self.post('/dashboards/reportJobs', params=body, version='v2')
         job_id = json.loads(response.text)['id']
         if ARGS.verbose > 5:
-            print('Started Job: {}'.format(job_id))
+            print(f'Started Job: {job_id}')
         return job_id
 
     def check_export_dashboard_status(self,job_id):
         """
         Check on the status a defined export job
         """
-        response = self.get('/dashboards/reportJobs/%s/status' % (job_id), version='v2')
+        response = self.get(f'/dashboards/reportJobs/{job_id}/status', version='v2')
         response = {
             "result": json.loads(response.text),
             "job": job_id
@@ -371,10 +373,10 @@ class SumoApiClient():
             "bytes": response.content
         }
         if ARGS.verbose > 5:
-            print ('Returned File Type: {}'.format(response['format']))
+            print (f'Returned File Type: {response["format"]}')
         return response
 
-    def define_export_job(self,report_id,timezone="America/Los_Angeles",exportFormat='Pdf'):
+    def define_export_job(self,report_id,timezone="America/Los_Angeles",export_format='Pdf'):
         """
         Define a dashboard export job
         """
@@ -382,7 +384,7 @@ class SumoApiClient():
             "action": {
                 "actionType": "DirectDownloadReportAction"
                 },
-            "exportFormat": exportFormat,
+            "exportFormat": export_format,
             "timezone": timezone,
             "template": {
                 "templateType": "DashboardTemplate",
@@ -403,13 +405,11 @@ class SumoApiClient():
             response = self.check_export_dashboard_status(job_id)
             progress = response['result']['status']
             if ARGS.verbose > 7:
-                print('job: {} status: {} tries: {} sleeping: {}'.format(job_id, \
-                                                    progress, tried, seconds))
+                print(f'job: {job_id} status: {progress} tries: {tried} sleep: {seconds}')
             time.sleep(seconds)
 
         if ARGS.verbose > 5:
-            print('{}/{} job: {} status: {}'.format(tried, tries, \
-                                                    job_id, progress))
+            print(f'{tried}/{tries} job: {job_id} status: {progress}')
 
         response['tried'] = tried
         response['seconds'] = tried * seconds
@@ -418,19 +418,19 @@ class SumoApiClient():
         return response
 
     def run_export_job(self,report_id,timezone="America/Los_Angeles", \
-                       exportFormat='Pdf',tries=30,seconds=MY_SLEEP):
+                       export_format='Pdf',tries=30,seconds=MY_SLEEP):
         """
         Run the defined dashboard export job
         """
-        payload = self.define_export_job(report_id,timezone=timezone,exportFormat=exportFormat)
+        payload = self.define_export_job(report_id,timezone=timezone,export_format=export_format)
         job = self.export_dashboard(payload)
         if ARGS.verbose > 7:
-            print ('Running Job: {}'.format(job))
+            print (f'Running Job: {job}')
         poll_status = self.poll_export_dashboard_job(job,tries=tries,seconds=seconds)
         if poll_status['result']['status'] == 'Success':
             export = self.get_export_dashboard_result(job)
         else:
-            print ('Job Unsuccessful after: {} attempts'.format(tries))
+            print (f'Job Unsuccessful after: {tries} attempts')
             export = {
                 'job': job
             }
