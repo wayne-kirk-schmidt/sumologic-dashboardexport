@@ -1,8 +1,8 @@
 repo_name: wayne-kirk-schmidt/sumologic-dashboardexport
-report_id: 202271e63daca7ebf4b373c4f282e948
+report_id: 82ac691094dd9fe58bedb444c7664a96
 repo_type: Public
-timestamp: '2023-11-10T02:23:51+00:00'
-requested_by: wks-sumo-logic
+timestamp: '2023-12-14T10:06:05+00:00'
+requested_by: wayne-kirk-schmidt
 provider: github
 branch: main
 detected_tools_count: 2
